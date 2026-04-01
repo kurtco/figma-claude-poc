@@ -1,17 +1,17 @@
 type FigmaContainer = PageNode | FrameNode | ComponentNode | InstanceNode | GroupNode | SectionNode;
 
-// Aumentamos el alto para mostrar información de la selección a Martha
+// Increase UI height to display selection context for the user
 figma.showUI(__html__, { width: 340, height: 320, themeColors: true });
 
 /**
- * Envía la selección actual a la UI para que Claude tenga contexto.
+ * Sends the current selection to the UI to provide context for Claude.
  */
 function sendSelectionToUI() {
   const selection = figma.currentPage.selection.map(node => ({
     id: node.id,
     name: node.name,
     type: node.type,
-    // @ts-ignore - Propiedades para contexto de la IA
+    // @ts-ignore - Properties for AI context
     width: node.width || 0,
     // @ts-ignore
     height: node.height || 0
@@ -20,13 +20,13 @@ function sendSelectionToUI() {
   figma.ui.postMessage({ type: 'selection-updated', selection });
 }
 
-// Escuchar cambios en el canvas para mantener a Martha informada
+// Listen for canvas selection changes to keep the UI synchronized
 figma.on('selectionchange', sendSelectionToUI);
 
 async function processNode(data: any, parentNode: FigmaContainer) {
   let node: SceneNode | null = null;
 
-  // 1. Intentar encontrar nodo existente si Claude provee un ID (Modificación)
+  // 1. Attempt to find an existing node if Claude provides an ID (Modification flow)
   if (data.id) {
     const found = figma.getNodeById(data.id);
     if (found && found.type !== 'PAGE' && found.type !== 'DOCUMENT') {
@@ -34,7 +34,7 @@ async function processNode(data: any, parentNode: FigmaContainer) {
     }
   }
 
-  // 2. Si no hay ID o no se encontró, crear nodo nuevo (Creación)
+  // 2. If no ID is provided or found, create a new node (Creation flow)
   if (!node) {
     switch (data.type) {
       case 'COMPONENT':
@@ -54,7 +54,7 @@ async function processNode(data: any, parentNode: FigmaContainer) {
     }
   }
 
-  // 3. Aplicar propiedades (Válido para nuevos y existentes)
+  // 3. Apply properties (Valid for both new and existing nodes)
   node.name = data.name || node.name;
   
   if ('resize' in node && data.width && data.height) {
@@ -66,7 +66,7 @@ async function processNode(data: any, parentNode: FigmaContainer) {
     (node as TextNode).characters = data.characters;
   }
 
-  // 4. Auto Layout y Estilos
+  // 4. Auto Layout and Styles
   if ('layoutMode' in node && data.layoutMode) {
     const f = node as FrameNode | ComponentNode;
     f.layoutMode = data.layoutMode;
@@ -81,14 +81,14 @@ async function processNode(data: any, parentNode: FigmaContainer) {
     node.fills = data.fills;
   }
 
-  // 5. Recursividad para Hijos
+  // 5. Recursion for child nodes
   if (data.children && Array.isArray(data.children) && 'appendChild' in node) {
     for (const childData of data.children) {
       await processNode(childData, node as unknown as FigmaContainer);
     }
   }
 
-  // Solo añadir al padre si es un nodo recién creado
+  // Only append to parent if it's a newly created node (prevents unintended re-parenting)
   if (!data.id) {
     parentNode.appendChild(node);
   }
@@ -106,7 +106,8 @@ figma.ui.onmessage = async (msg) => {
       nodes.push(node);
     }
 
-    figma.currentPage.selection = nodes;
+    // Set selection and focus the viewport on generated/modified content
+    figma.currentPage.selection = nodes; 
     figma.viewport.scrollAndZoomIntoView(nodes);
   }
 };
