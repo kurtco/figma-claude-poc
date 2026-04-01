@@ -1,53 +1,79 @@
-<style>
-  body { font-family: sans-serif; padding: 20px; background: #f5f5f5; }
-  textarea { width: 100%; height: 80px; margin-bottom: 12px; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
-  button { width: 100%; padding: 10px; background: #0d99ff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
-  button:disabled { background: #a5d8ff; cursor: not-allowed; }
-</style>
-
-<h3>Claude UI Builder</h3>
-<textarea id="prompt" placeholder="Ej: Crea un rectángulo rojo de 200x50 y un texto..."></textarea>
-<button id="generate">Generar en Canvas</button>
-
-<script>
-  const ANTHROPIC_API_KEY = 'sk-ant-api03-XXXXXXXXXXXXXXXXXXXXXX';
-
-  document.getElementById('generate').onclick = async () => {
-    const userPrompt = document.getElementById('prompt').value;
-    const button = document.getElementById('generate');
-    button.innerText = 'Generando...';
-    button.disabled = true;
-
-    try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({
-          model: 'claude-3-5-sonnet-20241022',
-          max_tokens: 1024,
-          system: 'You are an API that controls Figma. You must output ONLY valid JSON without markdown block formatting. The JSON must be an array of objects representing Figma nodes. Available types: RECTANGLE, TEXT. Properties required: type, width, height, x, y. For RECTANGLE include fills (array of objects with type "SOLID" and color {r, g, b} normalized 0-1). For TEXT include characters.',
-          messages: [{ role: 'user', content: userPrompt }]
-        })
-      });
-
-      const data = await response.json();
-      const jsonString = data.content[0].text;
-      
-      const cleanJson = jsonString.replace(/```json/g, '').replace(/```/g, '').trim();
-      const figmaNodes = JSON.parse(cleanJson);
-
-      parent.postMessage({ pluginMessage: { type: 'draw-nodes', payload: figmaNodes } }, '*');
-    } catch (error) {
-      console.error('API Error:', error);
-      alert('Error en la petición a Claude. Revisa la consola.');
-    } finally {
-      button.innerText = 'Generar en Canvas';
-      button.disabled = false;
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    :root { --primary: #0d99ff; --bg: #ffffff; }
+    body { font-family: 'Inter', sans-serif; padding: 16px; background: var(--bg); color: #333; margin: 0; }
+    textarea { 
+      width: 100%; height: 100px; padding: 12px; border: 1px solid #e6e6e6; 
+      border-radius: 8px; font-size: 12px; resize: none; box-sizing: border-box;
+      margin-bottom: 12px; font-family: inherit;
     }
-  };
-</script>
+    textarea:focus { border-color: var(--primary); outline: none; }
+    button { 
+      width: 100%; padding: 12px; background: var(--primary); color: white; 
+      border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px;
+    }
+    button:disabled { background: #b2d7ff; cursor: not-allowed; }
+    #status { font-size: 11px; color: #666; margin-top: 8px; text-align: center; }
+  </style>
+</head>
+<body>
+  <textarea id="prompt" placeholder="Ej: Crea un Card de producto con Auto Layout, imagen (rect), título y botón..."></textarea>
+  <button id="generate">Ejecutar Engine de Diseño</button>
+  <div id="status">Listo para procesar</div>
+
+  <script>
+    const ANTHROPIC_API_KEY = 'sk-ant-api03-XXXXXXXXXXXXXXXXXXXXXX'; // Sustituir por clave real
+
+    document.getElementById('generate').onclick = async () => {
+      const promptElem = document.getElementById('prompt');
+      const statusElem = document.getElementById('status');
+      const btn = document.getElementById('generate');
+      
+      const userPrompt = promptElem.value;
+      if(!userPrompt) return;
+
+      btn.disabled = true;
+      statusElem.innerText = 'Consultando a Claude 3.5 Sonnet...';
+
+      try {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true'
+          },
+          body: JSON.stringify({
+            model: 'claude-3-5-sonnet-20241022',
+            max_tokens: 2048,
+            system: `You are a Senior Figma Architect. Output ONLY raw JSON.
+            SCHEMA RULES:
+            - Nodes: FRAME, RECTANGLE, TEXT, COMPONENT.
+            - Auto Layout: Use layoutMode (HORIZONTAL/VERTICAL), itemSpacing, padding (Left, Right, Top, Bottom).
+            - Nesting: Use 'children' array for FRAMEs and COMPONENTs.
+            - Colors: {r, g, b} normalized 0-1.
+            - Constraints: primaryAxisSizingMode, counterAxisSizingMode (FIXED/AUTO).`,
+            messages: [{ role: 'user', content: userPrompt }]
+          })
+        });
+
+        const data = await response.json();
+        const rawText = data.content[0].text;
+        const cleanJson = rawText.replace(/```json|```/g, '').trim();
+        const payload = JSON.parse(cleanJson);
+
+        parent.postMessage({ pluginMessage: { type: 'execute-design', payload } }, '*');
+        statusElem.innerText = 'Canvas actualizado con éxito';
+      } catch (e) {
+        statusElem.innerText = 'Error: ' + e.message;
+        console.error(e);
+      } finally {
+        btn.disabled = false;
+      }
+    };
+  </script>
+</body>
+</html>
