@@ -4,12 +4,14 @@
   <style>
     :root { --primary: #0d99ff; --bg: #ffffff; }
     body { font-family: 'Inter', sans-serif; padding: 16px; background: var(--bg); color: #333; margin: 0; }
+    .container { display: flex; flex-direction: column; gap: 8px; }
     textarea { 
-      width: 100%; height: 100px; padding: 12px; border: 1px solid #e6e6e6; 
+      width: 100%; height: 120px; padding: 12px; border: 1px solid #e6e6e6; 
       border-radius: 8px; font-size: 12px; resize: none; box-sizing: border-box;
-      margin-bottom: 12px; font-family: inherit;
+      font-family: inherit;
     }
     textarea:focus { border-color: var(--primary); outline: none; }
+    .info-bar { font-size: 10px; color: #666; margin-bottom: 4px; }
     button { 
       width: 100%; padding: 12px; background: var(--primary); color: white; 
       border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px;
@@ -19,18 +21,33 @@
   </style>
 </head>
 <body>
-  <textarea id="prompt" placeholder="Ej: Crea un Card de producto con Auto Layout, imagen (rect), título y botón..."></textarea>
-  <button id="generate">Ejecutar Engine de Diseño</button>
-  <div id="status">Listo para procesar</div>
+  <div class="container">
+    <div class="info-bar">
+      <span id="selection-status">Selección: 0 objetos</span>
+    </div>
+    <textarea id="prompt" placeholder="Ej: Modifica el botón seleccionado para que sea rojo o genera un layout de perfil..."></textarea>
+    <button id="generate">Ejecutar Engine de Diseño</button>
+    <div id="status">Listo para procesar</div>
+  </div>
 
   <script>
-    const ANTHROPIC_API_KEY = 'sk-ant-api03-XXXXXXXXXXXXXXXXXXXXXX'; // Sustituir por clave real
+    const ANTHROPIC_API_KEY = 'sk-ant-api03-XXXXXXXXXXXXXXXXXXXXXX'; //
+    let selectionContext = [];
 
-    document.getElementById('generate').onclick = async () => {
-      const promptElem = document.getElementById('prompt');
-      const statusElem = document.getElementById('status');
-      const btn = document.getElementById('generate');
-      
+    const promptElem = document.getElementById('prompt');
+    const btn = document.getElementById('generate');
+    const statusElem = document.getElementById('status');
+
+    // Escuchar cambios de selección desde el hilo principal
+    window.onmessage = (event) => {
+      const msg = event.data.pluginMessage;
+      if (msg.type === 'selection-updated') {
+        selectionContext = msg.selection;
+        document.getElementById('selection-status').innerText = `Selección: ${selectionContext.length} objetos`;
+      }
+    };
+
+    btn.onclick = async () => {
       const userPrompt = promptElem.value;
       if(!userPrompt) return;
 
@@ -49,22 +66,25 @@
           body: JSON.stringify({
             model: 'claude-3-5-sonnet-20241022',
             max_tokens: 2048,
-            system: `You are a Senior Figma Architect. Output ONLY raw JSON.
-            SCHEMA RULES:
-            - Nodes: FRAME, RECTANGLE, TEXT, COMPONENT.
-            - Auto Layout: Use layoutMode (HORIZONTAL/VERTICAL), itemSpacing, padding (Left, Right, Top, Bottom).
-            - Nesting: Use 'children' array for FRAMEs and COMPONENTs.
-            - Colors: {r, g, b} normalized 0-1.
-            - Constraints: primaryAxisSizingMode, counterAxisSizingMode (FIXED/AUTO).`,
+            system: `You are a Senior Figma Architect. 
+            CONTEXT: The user has selected these nodes: ${JSON.stringify(selectionContext)}.
+            RULES:
+            - If modifying an existing node, use its "id" in the JSON output.
+            - If creating new nodes, do not include an "id".
+            - Use Auto Layout (layoutMode, itemSpacing, padding) for containers.
+            - Output ONLY raw JSON.`,
             messages: [{ role: 'user', content: userPrompt }]
           })
         });
 
         const data = await response.json();
+        if (data.error) throw new Error(data.error.message);
+
         const rawText = data.content[0].text;
         const cleanJson = rawText.replace(/```json|```/g, '').trim();
         const payload = JSON.parse(cleanJson);
 
+        // Enviar payload al motor de ejecución en code.ts
         parent.postMessage({ pluginMessage: { type: 'execute-design', payload } }, '*');
         statusElem.innerText = 'Canvas actualizado con éxito';
       } catch (e) {
